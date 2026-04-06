@@ -1,0 +1,13 @@
+{
+  "name": "teams-channel",
+  "description": "Microsoft Teams channel for Claude Code — messaging bridge with Bot Framework, built-in access control, and multi-user support.",
+  "version": "0.1.0",
+  "keywords": [
+    "teams",
+    "microsoft",
+    "messaging",
+    "channel",
+    "mcp",
+    "bot-framework"
+  ]
+}
