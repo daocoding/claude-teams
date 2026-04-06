@@ -11,28 +11,28 @@ Connect a Claude Code session to Microsoft Teams via an MCP server running on Bu
 
 ## Setup
 
-### 1. Install the plugin
+### 1. Clone the plugin
 
-Install directly from GitHub within Claude Code:
-
-```
-/plugin install https://github.com/daocoding/claude-teams
-/reload-plugins
-```
-
-Or add the MCP server manually:
-
-```
-claude mcp add teams-channel bun run start
+```bash
+git clone https://github.com/daocoding/claude-teams.git
+cd claude-teams
 ```
 
 ### 2. Configure credentials
+
+Create the state directory and save your Azure Bot credentials:
+
+```bash
+mkdir -p ~/.claude/channels/teams
+```
+
+Then launch Claude Code and run:
 
 ```
 /teams:configure <APP_ID> <APP_PASSWORD> <TENANT_ID>
 ```
 
-This saves credentials to `~/.claude/channels/teams/.env` (mode 0600).
+Or write `~/.claude/channels/teams/.env` manually (see [.env.example](.env.example)).
 
 ### 3. Expose the webhook
 
@@ -42,9 +42,21 @@ The server listens on port **3980** by default. Expose it via HTTPS and register
 https://your-domain.com/api/messages
 ```
 
+> **Important:** Do not use a raw public URL without network-level security. See [Security: Webhook Authentication](#security-webhook-authentication).
+
 ### 4. Launch with the channel
 
+**Development / pre-approval (now):**
+
+```bash
+claude --load-development-channels /path/to/claude-teams
 ```
+
+This loads the plugin directly from your local clone.
+
+**Official plugin (future — once approved by Anthropic):**
+
+```bash
 claude --channels plugin:teams-channel
 ```
 
@@ -102,10 +114,23 @@ The server runs as an MCP server connected to Claude Code via stdio. It simultan
 
 ## Limitations
 
+- **No JWT validation**: see [Security: Webhook Authentication](#security-webhook-authentication) for mitigations.
 - **No message history**: the Bot Framework webhook only delivers new messages. The assistant cannot retrieve earlier messages.
 - **Reactions**: Teams Bot API has limited reaction support. The `react` tool sends the emoji as a threaded reply instead.
 - **File attachments**: not yet supported (planned).
-- **JWT validation**: the webhook does not currently validate Bot Framework JWT tokens. Use network-level security (e.g., Tailscale, Azure VNET) in the meantime.
+## Security: Webhook Authentication
+
+**This plugin does not validate Bot Framework JWT tokens on incoming webhook requests.** This means anyone who discovers your webhook URL can send forged messages that will be delivered to your Claude Code session as if they came from a legitimate Teams user.
+
+**Risk:** An attacker could impersonate an approved user or inject arbitrary prompts into your session.
+
+**Recommended mitigations (use at least one):**
+
+1. **Network-level security (strongly recommended)** — expose the webhook only through [Tailscale Funnel](https://tailscale.com/kb/1223/funnel), a VPN, or Azure VNET. This ensures only trusted networks can reach the endpoint.
+2. **Firewall rules** — restrict inbound traffic to [Microsoft's Bot Framework IP ranges](https://learn.microsoft.com/en-us/azure/bot-service/bot-service-resources-faq-security).
+3. **Reverse proxy with auth** — place the webhook behind nginx/Caddy with mutual TLS or basic auth.
+
+**Do not expose the webhook on a public URL (e.g., raw ngrok) without one of the above.** JWT validation is on the [roadmap](#roadmap).
 
 ## License
 
