@@ -19,7 +19,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { readFileSync, writeFileSync, mkdirSync, renameSync, chmodSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync, chmodSync, createWriteStream, statSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -321,6 +321,75 @@ async function addReaction(serviceUrl: string, conversationId: string, activityI
 }
 
 // ═══════════════════════════════════════
+// Attachments
+// ═══════════════════════════════════════
+type Attachment = {
+  contentType?: string
+  contentUrl?: string
+  name?: string
+  content?: { downloadUrl?: string }
+}
+
+type DownloadedFile = {
+  name: string
+  path: string
+  contentType: string
+}
+
+async function downloadAttachment(att: Attachment, conversationId: string): Promise<DownloadedFile | null> {
+  const contentUrl = att.content?.downloadUrl || att.contentUrl
+  if (!contentUrl) return null
+
+  const filename = att.name || `attachment_${Date.now()}`
+  const safeConvoId = conversationId.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40)
+  const destDir = join(INBOX_DIR, safeConvoId)
+  mkdirSync(destDir, { recursive: true })
+
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19)
+  const destPath = join(destDir, `${ts}_${filename}`)
+
+  try {
+    const isPreAuth = contentUrl.includes('download.aspx') || contentUrl.includes('_layouts/15/')
+    const headers: Record<string, string> = {}
+    if (!isPreAuth) {
+      const token = await getBotToken()
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
+    const r = await fetch(contentUrl, { headers, redirect: 'follow' })
+    if (!r.ok) throw new Error(`Download failed (${r.status})`)
+
+    const buffer = Buffer.from(await r.arrayBuffer())
+    writeFileSync(destPath, buffer)
+
+    process.stderr.write(`teams channel: downloaded ${filename} (${buffer.length} bytes) → ${destPath}\n`)
+    return { name: filename, path: destPath, contentType: att.contentType || 'application/octet-stream' }
+  } catch (err) {
+    process.stderr.write(`teams channel: attachment download failed: ${err}\n`)
+    return null
+  }
+}
+
+async function processAttachments(attachments: Attachment[], conversationId: string): Promise<DownloadedFile[]> {
+  if (!attachments || attachments.length === 0) return []
+
+  // Filter out cards and entities — only real file attachments
+  const fileAttachments = attachments.filter(a => {
+    const ct = (a.contentType || '').toLowerCase()
+    if (ct.includes('card') || ct.includes('entity')) return false
+    return true
+  })
+  if (fileAttachments.length === 0) return []
+
+  const results: DownloadedFile[] = []
+  for (const att of fileAttachments) {
+    const result = await downloadAttachment(att, conversationId)
+    if (result) results.push(result)
+  }
+  return results
+}
+
+// ═══════════════════════════════════════
 // MCP Server
 // ═══════════════════════════════════════
 const mcp = new Server(
@@ -391,6 +460,19 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['conversation_id', 'activity_id', 'text'],
       },
     },
+    {
+      name: 'download_attachment',
+      description: 'Download an attachment from a message. Returns the local file path. Use the Read tool to view images.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          url: { type: 'string' as const, description: 'The contentUrl or downloadUrl of the attachment.' },
+          conversation_id: { type: 'string' as const },
+          filename: { type: 'string' as const, description: 'Optional filename to save as.' },
+        },
+        required: ['url', 'conversation_id'],
+      },
+    },
   ],
 }))
 
@@ -431,6 +513,15 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     return { content: [{ type: 'text', text: 'Message updated.' }] }
   }
 
+  if (name === 'download_attachment') {
+    const result = await downloadAttachment(
+      { contentUrl: a.url, name: a.filename, contentType: 'application/octet-stream' },
+      a.conversation_id,
+    )
+    if (!result) throw new Error('Download failed')
+    return { content: [{ type: 'text', text: `Downloaded: ${result.path}` }] }
+  }
+
   throw new Error(`Unknown tool: ${name}`)
 })
 
@@ -451,9 +542,23 @@ async function handleActivity(activity: Record<string, unknown>, serviceUrl: str
   const senderName = from?.name ?? 'Unknown'
   const rawText = activity.text as string || ''
   const mentionedBot = /<at>.*?<\/at>/i.test(rawText)
-  const text = rawText.replace(/<at>.*?<\/at>\s*/g, '').trim()
+  let text = rawText.replace(/<at>.*?<\/at>\s*/g, '').trim()
   const activityId = activity.id as string
   const ts = activity.timestamp as string || new Date().toISOString()
+
+  // Process attachments (images, files)
+  const attachments = activity.attachments as Attachment[] | undefined
+  const downloadedFiles = await processAttachments(attachments || [], conversationId)
+
+  if (downloadedFiles.length > 0) {
+    const fileList = downloadedFiles.map(f => {
+      const isImage = f.contentType.startsWith('image/')
+      return isImage
+        ? `[Image: ${f.name}] (saved to ${f.path} — use Read tool to view)`
+        : `[File: ${f.name}] (saved to ${f.path})`
+    }).join('\n')
+    text = text ? `${text}\n\nAttachments:\n${fileList}` : `Attachments:\n${fileList}`
+  }
 
   if (!text) return
 
@@ -498,6 +603,9 @@ async function handleActivity(activity: Record<string, unknown>, serviceUrl: str
         user_id: senderId,
         ts,
         ...(isGroup ? { conversation_type: 'group' } : {}),
+        ...(downloadedFiles.find(f => f.contentType.startsWith('image/'))
+          ? { image_path: downloadedFiles.find(f => f.contentType.startsWith('image/'))!.path }
+          : {}),
       },
     },
   }).catch(err => {

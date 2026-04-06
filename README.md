@@ -74,6 +74,7 @@ claude --channels plugin:teams-channel
 | `reply` | Send a message to a Teams conversation. Pass `conversation_id` from the inbound message. Optionally pass `reply_to` (activity_id) for threading. |
 | `react` | React with an emoji (sent as a threaded reply — Teams Bot API has limited native reaction support). |
 | `edit_message` | Update a previously sent bot message. Edits don't trigger push notifications. |
+| `download_attachment` | Download an attachment by URL to the local inbox. Returns the file path. |
 
 ## Environment variables
 
@@ -109,7 +110,7 @@ The server runs as an MCP server connected to Claude Code via stdio. It simultan
 - **Multi-user CLI sessions** — route non-owner conversations to separate `claude --print --resume` processes, so multiple Teams users can interact with the bot concurrently
 - **Owner DM routing** — designate one conversation for live MCP delivery while others get independent CLI sessions
 - **Group workspace isolation** — sandboxed working directories per group chat
-- **File attachments** — send and receive files via Teams
+- **Outbound file attachments** — send files from Claude to Teams
 - **Adaptive Cards** — rich card formatting for structured responses
 - **JWT validation** — verify Bot Framework tokens for production-grade webhook security
 
@@ -118,7 +119,7 @@ The server runs as an MCP server connected to Claude Code via stdio. It simultan
 - **No JWT validation**: see [Security: Webhook Authentication](#security-webhook-authentication) for mitigations.
 - **No message history**: the Bot Framework webhook only delivers new messages. The assistant cannot retrieve earlier messages.
 - **Reactions**: Teams Bot API has limited reaction support. The `react` tool sends the emoji as a threaded reply instead.
-- **File attachments**: not yet supported (planned).
+- **File attachments**: images and files are downloaded to `~/.claude/channels/teams/inbox/`. Images can be viewed with the Read tool. Sending files from Claude to Teams is not yet supported.
 ## Bot Permissions
 
 This plugin uses **minimal permissions** — only what's needed for messaging.
