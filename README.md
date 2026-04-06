@@ -7,7 +7,8 @@ Connect a Claude Code session to Microsoft Teams via an MCP server running on Bu
 - [Bun](https://bun.sh) runtime: `curl -fsSL https://bun.sh/install | bash`
 - An Azure Bot registration ([create one here](https://portal.azure.com/#create/Microsoft.AzureBot))
   - Copy the **App ID**, **App Password**, and **Tenant ID**
-- A public HTTPS endpoint for the webhook (e.g., [ngrok](https://ngrok.com), [Tailscale Funnel](https://tailscale.com/kb/1223/funnel), or Azure App Service)
+  - See [Bot permissions](#bot-permissions) for required scopes
+- A public HTTPS endpoint for the webhook (e.g., [Tailscale Funnel](https://tailscale.com/kb/1223/funnel), VPN, or Azure App Service) — see [Security](#security-webhook-authentication)
 
 ## Setup
 
@@ -118,6 +119,38 @@ The server runs as an MCP server connected to Claude Code via stdio. It simultan
 - **No message history**: the Bot Framework webhook only delivers new messages. The assistant cannot retrieve earlier messages.
 - **Reactions**: Teams Bot API has limited reaction support. The `react` tool sends the emoji as a threaded reply instead.
 - **File attachments**: not yet supported (planned).
+## Bot Permissions
+
+This plugin uses **minimal permissions** — only what's needed for messaging.
+
+### Azure Bot Framework scope
+
+The bot authenticates with `https://api.botframework.com/.default`, which grants:
+
+- **Send and receive messages** — reply to conversations, send typing indicators
+- **Edit messages** — update previously sent bot messages
+- **No Graph API access** — the bot cannot read email, calendar, files, or any other Microsoft 365 data
+
+### Teams app manifest permissions
+
+When registering the bot in Teams Admin Center or via app manifest:
+
+| Permission | Why |
+|-----------|-----|
+| `TeamMessagingSettings.Read` | Receive messages from chats |
+| `ChatMessage.Send` | Send replies back |
+
+The bot **does not** require or request:
+
+- `User.Read.All` or any directory permissions
+- `Files.Read` / `Sites.Read` or any SharePoint/OneDrive access
+- `Mail.Read` / `Calendars.Read` or any Exchange access
+- Admin consent (single-tenant bots only need user-level consent)
+
+### Single-tenant vs multi-tenant
+
+This plugin is designed for **single-tenant** deployment (your own Azure AD tenant). Set `MICROSOFT_TENANT_ID` in your `.env` to restrict authentication to your tenant only. Do not leave it empty in production — an empty tenant ID falls back to `botframework.com` which allows any tenant.
+
 ## Security: Webhook Authentication
 
 **This plugin does not validate Bot Framework JWT tokens on incoming webhook requests.** This means anyone who discovers your webhook URL can send forged messages that will be delivered to your Claude Code session as if they came from a legitimate Teams user.
