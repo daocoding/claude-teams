@@ -197,10 +197,10 @@ function gate(conversationId: string, senderId: string, senderName: string, serv
   const pruned = prunePending(access)
   if (pruned) saveAccess(access)
 
-  if (access.dmPolicy === 'disabled') return { action: 'drop' }
-
   if (!isGroup) {
     if (access.allowFrom.includes(conversationId)) return { action: 'deliver', access }
+
+    if (access.dmPolicy === 'disabled' || access.dmPolicy === 'allowlist') return { action: 'drop' }
 
     if (access.pending[conversationId]) {
       return { action: 'pending', code: access.pending[conversationId].code, isResend: true }
@@ -572,9 +572,8 @@ async function handleActivity(activity: Record<string, unknown>, serviceUrl: str
   if (result.action === 'drop') return
 
   if (result.action === 'pending') {
-    // Store service URL for later approval reply
+    // Store sender display name for operator visibility
     const access = readAccessFile()
-    access.senderMap[conversationId + ':serviceUrl'] = serviceUrl
     access.senderMap[conversationId] = senderName
     saveAccess(access)
 
